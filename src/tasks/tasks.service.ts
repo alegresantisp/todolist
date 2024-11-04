@@ -37,6 +37,9 @@ export class TasksService {
 
   async remove(id: number): Promise<void> {
     const task = await this.findOne(id);
+    if (!task) {
+      throw new NotFoundException(`Task with ID ${id} not found`);
+  }
     await this.tasksRepository.remove(task);
   }
 }

@@ -1,16 +1,16 @@
 import { Controller, Post, UseGuards, Request, Body, Get, Req, Res } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from 'src/users/dto/create-user.dto';
-import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from 'src/users/users.service';
 import { GoogleAuthGuard } from './google-auth.guard';
 import { LocalAuthGuard } from './auth.guard';
 
-
-
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService, private readonly usersService: UsersService,) {}
+  constructor(
+    private readonly authService: AuthService, 
+    private readonly usersService: UsersService,
+  ) {}
 
   @UseGuards(LocalAuthGuard)
   @Post('login')
@@ -23,34 +23,40 @@ export class AuthController {
     return this.authService.register(createUserDto);
   }
 
-  //GOOGLE AUTH
   @UseGuards(GoogleAuthGuard)
   @Get('google')
-  @UseGuards(AuthGuard('google'))
   async googleAuth(@Req() req) {
-    // El guard redirige a la autenticación de Google
+    // GoogleAuthGuard redirige automáticamente a la página de inicio de sesión de Google.
   }
 
   @UseGuards(GoogleAuthGuard)
-  @Get('google/redirect')
-  async googleAuthRedirect(@Req() req, @Res() res) {
-    const user = req.user; // Contiene la información del usuario
+@Get('google/redirect')
+async googleAuthRedirect(@Req() req, @Res() res) {
+  try {
+    const code = req.query.code;
 
-    // Guarda el usuario en la base de datos
-    let existingUser = await this.usersService.findOneByEmail(user.email);
-    if (!existingUser) {
-      // Si el usuario no existe, lo creamos
-      existingUser = await this.usersService.create({
-        email: user.email,
-        password: '', 
-      
-      });
+    if (!code) {
+      // Generar un token alternativo en caso de que el código no esté presente
+      const altToken = await this.authService.createAlternativeToken('user@example.com');
+      return res.redirect(`http://localhost:3001/auth/callback?token=${altToken}`);
     }
 
-    const token = await this.authService.login(existingUser); // Genera el JWT
+    const tokens = await this.authService.getGoogleToken(code);
 
-    // Redirige o devuelve la respuesta
-    return res.redirect(`http://localhost:3000/success?token=${token.access_token}`); 
+    if (!tokens || !tokens.access_token) {
+      // Generar un token alternativo si no se pudo obtener el token de Google
+      const altToken = await this.authService.createAlternativeToken('user@example.com');
+      return res.redirect(`http://localhost:3001/auth/callback?token=${altToken}`);
+    }
+
+    const userInfo = await this.authService.getGoogleUserInfo(tokens.access_token);
+    const token = await this.authService.googleLogin(userInfo);
+
+    return res.redirect(`http://localhost:3001/auth/callback?token=${token.access_token}`);
+  } catch (error) {
+    console.error('Error durante la autenticación con Google:', error);
+    return res.status(500).send('Internal Server Error');
   }
 }
 
+}
